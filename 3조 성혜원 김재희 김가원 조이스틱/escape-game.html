@@ -1,0 +1,1058 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2인 협동 탈출 게임 - 레트로</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Courier New', monospace;
+            overflow: hidden;
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        #startScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        #startScreen h1 {
+            color: #00ff00;
+            font-size: 60px;
+            margin-bottom: 30px;
+            text-shadow: 4px 4px 0px #005500;
+            font-weight: bold;
+            animation: blink 1.5s infinite;
+        }
+        @keyframes blink {
+            0%, 50%, 100% { opacity: 1; }
+            25%, 75% { opacity: 0.7; }
+        }
+        #startScreen p {
+            color: #00ffff;
+            font-size: 20px;
+            margin: 10px 0;
+            text-shadow: 2px 2px 0px #005555;
+        }
+        #startButton {
+            margin-top: 50px;
+            padding: 20px 60px;
+            font-size: 32px;
+            background: #ff0066;
+            color: white;
+            border: 4px solid #ffffff;
+            border-radius: 0;
+            cursor: pointer;
+            box-shadow: 8px 8px 0px #990033;
+            transition: all 0.1s;
+            font-family: 'Courier New', monospace;
+            font-weight: bold;
+        }
+        #startButton:hover {
+            background: #ff3388;
+            transform: translate(2px, 2px);
+            box-shadow: 6px 6px 0px #990033;
+        }
+        #startButton:active {
+            transform: translate(4px, 4px);
+            box-shadow: 4px 4px 0px #990033;
+        }
+        #gameContainer {
+            position: relative;
+            background: #0a0a0a;
+            border: 4px solid #00ff00;
+        }
+        #gameCanvas {
+            display: block;
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+        #ui {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            color: #00ff00;
+            font-size: 18px;
+            text-shadow: 2px 2px 0px #005500;
+            z-index: 10;
+            background: rgba(0,0,0,0.8);
+            padding: 15px;
+            border: 3px solid #00ff00;
+            font-weight: bold;
+        }
+        .ui-line {
+            margin: 5px 0;
+        }
+        #message {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ffff00;
+            font-size: 40px;
+            text-shadow: 4px 4px 0px #888800;
+            text-align: center;
+            z-index: 20;
+            background: rgba(0,0,0,0.9);
+            padding: 30px 50px;
+            border: 4px solid #ffff00;
+            display: none;
+            font-weight: bold;
+        }
+        #instructions {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #00ffff;
+            font-size: 16px;
+            text-align: center;
+            background: rgba(0,0,0,0.8);
+            padding: 15px 30px;
+            border: 3px solid #00ffff;
+            z-index: 10;
+            font-weight: bold;
+        }
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="startScreen">
+        <h1>🎮 RETRO ESCAPE 🎮</h1>
+        <p>━━━━━━━━━━━━━━━━━━━━━</p>
+        <p>👾 2인 협동 탈출 게임 👾</p>
+        <p>🔑 모든 코인을 모아 문을 열어라!</p>
+        <p>💣 떨어지는 폭탄을 피하라!</p>
+        <p>🚧 움직이는 장애물을 피하고 협력하라!</p>
+        <p>━━━━━━━━━━━━━━━━━━━━━</p>
+        <p style="margin-top: 20px; font-size: 16px;">플레이어 1: WASD | 플레이어 2: 방향키</p>
+        <button id="startButton">START GAME</button>
+    </div>
+
+    <div id="gameContainer" class="hidden">
+        <canvas id="gameCanvas" width="800" height="600"></canvas>
+    </div>
+
+    <div id="ui" class="hidden">
+        <div class="ui-line">❤️ LIVES: <span id="lives">3</span></div>
+        <div class="ui-line">🎯 STAGE: <span id="stage">1</span></div>
+        <div class="ui-line">🪙 COINS: <span id="coins">0</span>/<span id="totalCoins">0</span></div>
+    </div>
+
+    <div id="instructions" class="hidden">
+        PLAYER 1: W-A-S-D | PLAYER 2: ↑←↓→ | ESC: PAUSE
+    </div>
+
+    <div id="message"></div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        let gameStarted = false;
+        let animationId;
+
+        const gameState = {
+            stage: 1,
+            maxStage: 3,
+            coinsCollected: 0,
+            totalCoins: 0,
+            doorOpen: false,
+            paused: false,
+            lives: 3,
+            maxLives: 3
+        };
+
+        const controls = {
+            // Player 1
+            w: false, a: false, s: false, d: false,
+            // Player 2
+            ArrowUp: false, ArrowDown: false, ArrowLeft: false, ArrowRight: false
+        };
+
+        // Player class
+        class Player {
+            constructor(x, y, color, keys) {
+                this.x = x;
+                this.y = y;
+                this.size = 16;
+                this.color = color;
+                this.keys = keys;
+                this.speed = 3;
+                this.animFrame = 0;
+                this.animCounter = 0;
+            }
+
+            update(obstacles) {
+                let dx = 0;
+                let dy = 0;
+
+                if (controls[this.keys.up]) dy -= this.speed;
+                if (controls[this.keys.down]) dy += this.speed;
+                if (controls[this.keys.left]) dx -= this.speed;
+                if (controls[this.keys.right]) dx += this.speed;
+
+                // 대각선 이동 정규화
+                if (dx !== 0 && dy !== 0) {
+                    dx *= 0.707;
+                    dy *= 0.707;
+                }
+
+                // 새 위치 계산
+                const newX = this.x + dx;
+                const newY = this.y + dy;
+
+                // 충돌 체크 - 장애물에 닿으면 목숨 감소
+                if (this.checkCollision(newX, newY, obstacles)) {
+                    gameState.lives--;
+                    updateUI();
+
+                    if (gameState.lives <= 0) {
+                        // 게임 오버
+                        showMessage('💀 GAME OVER 💀', 3000);
+                        gameState.paused = true;
+                        setTimeout(() => {
+                            // 시작 화면으로 돌아가기
+                            document.getElementById('gameContainer').classList.add('hidden');
+                            document.getElementById('ui').classList.add('hidden');
+                            document.getElementById('instructions').classList.add('hidden');
+                            document.getElementById('startScreen').classList.remove('hidden');
+
+                            // 게임 상태 초기화
+                            gameState.stage = 1;
+                            gameState.lives = 3;
+                            gameState.paused = false;
+                            gameStarted = false;
+                        }, 3000);
+                    } else {
+                        // 목숨이 남아있으면 플레이어 위치만 리셋
+                        showMessage(`💥 HIT! ${gameState.lives} LIVES LEFT!`, 1500);
+                        this.x = 100;
+                        this.y = this === player1 ? 100 : 150;
+                    }
+                    return; // 충돌 시 이동하지 않음
+                }
+
+                this.x = newX;
+                this.y = newY;
+
+                // 애니메이션
+                if (dx !== 0 || dy !== 0) {
+                    this.animCounter++;
+                    if (this.animCounter % 8 === 0) {
+                        this.animFrame = (this.animFrame + 1) % 4;
+                    }
+                }
+
+                // 경계 체크
+                this.x = Math.max(this.size, Math.min(canvas.width - this.size, this.x));
+                this.y = Math.max(this.size + 50, Math.min(canvas.height - this.size, this.y)); // 상단 UI 영역 피하기
+            }
+
+            checkCollision(x, y, obstacles) {
+                for (let obs of obstacles) {
+                    if (x + this.size > obs.x &&
+                        x - this.size < obs.x + obs.size &&
+                        y + this.size > obs.y &&
+                        y - this.size < obs.y + obs.size) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+
+            draw() {
+                // 픽셀 캐릭터 그리기 (간단한 도트 스타일)
+                ctx.fillStyle = this.color;
+
+                // 몸통
+                ctx.fillRect(this.x - 6, this.y - 6, 12, 12);
+
+                // 눈
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(this.x - 4, this.y - 3, 2, 2);
+                ctx.fillRect(this.x + 2, this.y - 3, 2, 2);
+
+                // 눈동자 (애니메이션)
+                ctx.fillStyle = '#000000';
+                const pupilOffset = Math.floor(this.animFrame / 2);
+                ctx.fillRect(this.x - 3 + pupilOffset, this.y - 2, 1, 1);
+                ctx.fillRect(this.x + 3 + pupilOffset, this.y - 2, 1, 1);
+
+                // 다리 (걷는 애니메이션)
+                ctx.fillStyle = this.color;
+                if (this.animFrame % 2 === 0) {
+                    ctx.fillRect(this.x - 4, this.y + 6, 3, 4);
+                    ctx.fillRect(this.x + 1, this.y + 8, 3, 2);
+                } else {
+                    ctx.fillRect(this.x - 4, this.y + 8, 3, 2);
+                    ctx.fillRect(this.x + 1, this.y + 6, 3, 4);
+                }
+
+                // 외곽선
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(this.x - 6, this.y - 6, 12, 12);
+            }
+        }
+
+        // Obstacle class
+        class Obstacle {
+            constructor(x, y, size, moving = false) {
+                this.x = x;
+                this.y = y;
+                this.size = size;
+                this.moving = moving;
+
+                if (moving) {
+                    // 랜덤 이동 방향
+                    this.vx = (Math.random() - 0.5) * 2;
+                    this.vy = (Math.random() - 0.5) * 2;
+                    this.speed = 1 + Math.random();
+                }
+            }
+
+            update() {
+                if (this.moving) {
+                    this.x += this.vx * this.speed;
+                    this.y += this.vy * this.speed;
+
+                    // 벽에 부딪히면 반사
+                    if (this.x <= 10 || this.x + this.size >= canvas.width - 10) {
+                        this.vx *= -1;
+                    }
+                    if (this.y <= 10 || this.y + this.size >= canvas.height - 10) {
+                        this.vy *= -1;
+                    }
+                }
+            }
+
+            draw() {
+                if (this.moving) {
+                    // 움직이는 장애물 - 빨간 톱니바퀴
+                    ctx.fillStyle = '#ff0000';
+                    ctx.fillRect(this.x, this.y, this.size, this.size);
+
+                    ctx.strokeStyle = '#aa0000';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(this.x, this.y, this.size, this.size);
+
+                    // 톱니 패턴
+                    ctx.fillStyle = '#ffff00';
+                    const teeth = 4;
+                    for (let i = 0; i < teeth; i++) {
+                        const angle = (i / teeth) * Math.PI * 2 + Date.now() * 0.005;
+                        const cx = this.x + this.size / 2;
+                        const cy = this.y + this.size / 2;
+                        const tx = cx + Math.cos(angle) * (this.size / 3);
+                        const ty = cy + Math.sin(angle) * (this.size / 3);
+                        ctx.fillRect(tx - 2, ty - 2, 4, 4);
+                    }
+
+                    // 경고 표시
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 16px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('⚠', this.x + this.size / 2, this.y + this.size / 2);
+                } else {
+                    // 고정 장애물 - 벽돌 패턴
+                    ctx.fillStyle = '#8B4513';
+                    ctx.fillRect(this.x, this.y, this.size, this.size);
+
+                    ctx.strokeStyle = '#5C2E0A';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(this.x, this.y, this.size, this.size);
+
+                    // 벽돌 디테일
+                    ctx.strokeStyle = '#A0522D';
+                    ctx.beginPath();
+                    ctx.moveTo(this.x + this.size / 2, this.y);
+                    ctx.lineTo(this.x + this.size / 2, this.y + this.size);
+                    ctx.stroke();
+                }
+            }
+        }
+
+        // Coin class
+        class Coin {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.size = 10;
+                this.collected = false;
+                this.animFrame = 0;
+            }
+
+            update() {
+                this.animFrame += 0.1;
+            }
+
+            checkCollection(player1, player2) {
+                if (this.collected) return false;
+
+                const checkPlayer = (player) => {
+                    const dx = player.x - this.x;
+                    const dy = player.y - this.y;
+                    return Math.sqrt(dx * dx + dy * dy) < player.size + this.size;
+                };
+
+                if (checkPlayer(player1) || checkPlayer(player2)) {
+                    this.collected = true;
+                    return true;
+                }
+                return false;
+            }
+
+            draw() {
+                if (this.collected) return;
+
+                // 회전하는 코인
+                const pulse = Math.sin(this.animFrame) * 2;
+
+                ctx.fillStyle = '#FFD700';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size + pulse, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.strokeStyle = '#FFA500';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // 내부 디테일
+                ctx.fillStyle = '#FFA500';
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size / 2, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 별 표시
+                ctx.fillStyle = '#FFFF00';
+                ctx.font = 'bold 12px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('★', this.x, this.y);
+            }
+        }
+
+        // Bomb class (새로 추가)
+        class Bomb {
+            constructor(x, speed) {
+                this.x = x;
+                this.y = -20;
+                this.size = 20;
+                this.speed = speed;
+                this.exploded = false;
+                this.explosionFrame = 0;
+                this.warningY = 0;
+            }
+
+            update() {
+                if (!this.exploded) {
+                    this.y += this.speed;
+
+                    // 바닥에 닿으면 폭발
+                    if (this.y >= canvas.height - 20) {
+                        this.explode();
+                    }
+                } else {
+                    this.explosionFrame++;
+                }
+            }
+
+            explode() {
+                this.exploded = true;
+            }
+
+            checkHit(player1, player2) {
+                if (this.exploded && this.explosionFrame < 30) {
+                    const explosionRadius = 50;
+
+                    const checkPlayer = (player) => {
+                        const dx = player.x - this.x;
+                        const dy = player.y - this.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        return distance < explosionRadius;
+                    };
+
+                    return checkPlayer(player1) || checkPlayer(player2);
+                }
+
+                // 직접 맞았는지 체크
+                if (!this.exploded) {
+                    const checkPlayer = (player) => {
+                        const dx = player.x - this.x;
+                        const dy = player.y - this.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        return distance < this.size + player.size;
+                    };
+
+                    if (checkPlayer(player1) || checkPlayer(player2)) {
+                        this.explode();
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            isDone() {
+                return this.exploded && this.explosionFrame > 30;
+            }
+
+            draw() {
+                if (!this.exploded) {
+                    // 떨어지는 폭탄
+                    // 경고 그림자
+                    ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+                    ctx.fillRect(this.x - 15, 0, 30, canvas.height);
+
+                    // 폭탄 몸체
+                    ctx.fillStyle = '#000000';
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.strokeStyle = '#333333';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+
+                    // 심지
+                    ctx.strokeStyle = '#ff6600';
+                    ctx.lineWidth = 3;
+                    ctx.beginPath();
+                    ctx.moveTo(this.x, this.y - this.size);
+                    ctx.lineTo(this.x, this.y - this.size - 8);
+                    ctx.stroke();
+
+                    // 불꽃
+                    const sparkle = Math.sin(Date.now() * 0.02) > 0;
+                    if (sparkle) {
+                        ctx.fillStyle = '#ffff00';
+                        ctx.beginPath();
+                        ctx.arc(this.x, this.y - this.size - 8, 4, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+
+                    // 💣 이모지
+                    ctx.fillStyle = '#ffffff';
+                    ctx.font = 'bold 20px Arial';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('💣', this.x, this.y);
+                } else {
+                    // 폭발 애니메이션
+                    const radius = this.explosionFrame * 2;
+                    const alpha = 1 - (this.explosionFrame / 30);
+
+                    // 외부 폭발
+                    ctx.fillStyle = `rgba(255, 100, 0, ${alpha})`;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, radius, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // 내부 폭발
+                    ctx.fillStyle = `rgba(255, 255, 0, ${alpha})`;
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, radius * 0.6, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // 폭발 입자
+                    for (let i = 0; i < 8; i++) {
+                        const angle = (i / 8) * Math.PI * 2;
+                        const dist = radius * 0.8;
+                        const px = this.x + Math.cos(angle) * dist;
+                        const py = this.y + Math.sin(angle) * dist;
+
+                        ctx.fillStyle = `rgba(255, 150, 0, ${alpha})`;
+                        ctx.beginPath();
+                        ctx.arc(px, py, 5, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+            }
+        }
+
+        // Door class
+        class Door {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.width = 60;
+                this.height = 80;
+                this.open = false;
+            }
+
+            openDoor() {
+                this.open = true;
+            }
+
+            checkEntry(player1, player2) {
+                if (!this.open) return false;
+
+                const checkPlayer = (player) => {
+                    return player.x > this.x &&
+                           player.x < this.x + this.width &&
+                           player.y > this.y &&
+                           player.y < this.y + this.height;
+                };
+
+                return checkPlayer(player1) && checkPlayer(player2);
+            }
+
+            draw() {
+                // 문틀
+                ctx.fillStyle = '#654321';
+                ctx.fillRect(this.x - 5, this.y - 5, this.width + 10, this.height + 10);
+
+                // 문
+                ctx.fillStyle = this.open ? '#90EE90' : '#8B4513';
+                ctx.fillRect(this.x, this.y, this.width, this.height);
+
+                ctx.strokeStyle = '#000000';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(this.x, this.y, this.width, this.height);
+
+                // 문 패널
+                ctx.strokeStyle = '#5C2E0A';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(this.x + 10, this.y + 10, this.width - 20, this.height / 2 - 15);
+                ctx.strokeRect(this.x + 10, this.y + this.height / 2 + 5, this.width - 20, this.height / 2 - 15);
+
+                // 손잡이
+                ctx.fillStyle = '#FFD700';
+                ctx.beginPath();
+                ctx.arc(this.x + this.width - 15, this.y + this.height / 2, 5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = '#000000';
+                ctx.stroke();
+
+                // 상태 표시
+                if (this.open) {
+                    ctx.fillStyle = '#00ff00';
+                    ctx.font = 'bold 16px Courier New';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('OPEN!', this.x + this.width / 2, this.y - 15);
+                } else {
+                    ctx.fillStyle = '#ff0000';
+                    ctx.font = 'bold 16px Courier New';
+                    ctx.textAlign = 'center';
+                    ctx.fillText('LOCKED', this.x + this.width / 2, this.y - 15);
+                }
+            }
+        }
+
+        let player1, player2, obstacles = [], coins = [], door, bombs = [];
+        let bombSpawnTimer = 0;
+
+        // 스테이지 초기화
+        function initStage(stageNum) {
+            obstacles = [];
+            coins = [];
+            bombs = [];
+            bombSpawnTimer = 0;
+            gameState.coinsCollected = 0;
+            gameState.doorOpen = false;
+
+            // 플레이어 초기화
+            if (!player1) {
+                player1 = new Player(100, 100, '#00aaff', {
+                    up: 'w', down: 's', left: 'a', right: 'd'
+                });
+                player2 = new Player(100, 150, '#ff0066', {
+                    up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight'
+                });
+            } else {
+                player1.x = 100;
+                player1.y = 100;
+                player2.x = 100;
+                player2.y = 150;
+            }
+
+            // 스테이지별 난이도
+            let obstacleCount, coinCount, movingObstacleCount, movingObstacleSpeed;
+            if (stageNum === 1) {
+                obstacleCount = 5;
+                movingObstacleCount = 2;
+                coinCount = 5;
+                movingObstacleSpeed = 1.0;
+            } else if (stageNum === 2) {
+                obstacleCount = 8;
+                movingObstacleCount = 4;
+                coinCount = 7;
+                movingObstacleSpeed = 1.5;
+            } else {
+                obstacleCount = 11;
+                movingObstacleCount = 6;
+                coinCount = 10;
+                movingObstacleSpeed = 2.0;
+            }
+
+            // 고정 장애물 생성
+            for (let i = 0; i < obstacleCount; i++) {
+                const x = Math.random() * (canvas.width - 200) + 150;
+                const y = Math.random() * (canvas.height - 200) + 100;
+                const size = 40 + Math.random() * 30;
+                obstacles.push(new Obstacle(x, y, size, false));
+            }
+
+            // 움직이는 장애물 생성
+            for (let i = 0; i < movingObstacleCount; i++) {
+                const x = Math.random() * (canvas.width - 200) + 150;
+                const y = Math.random() * (canvas.height - 200) + 100;
+                const size = 35;
+                const obs = new Obstacle(x, y, size, true);
+                obs.speed = movingObstacleSpeed; // 스테이지별 속도 설정
+                obstacles.push(obs);
+            }
+
+            // 코인 생성
+            for (let i = 0; i < coinCount; i++) {
+                let x, y, valid;
+                let attempts = 0;
+                do {
+                    x = Math.random() * (canvas.width - 100) + 50;
+                    y = Math.random() * (canvas.height - 100) + 50;
+                    valid = true;
+
+                    // 장애물과 너무 가까운지 체크
+                    for (let obs of obstacles) {
+                        const dx = x - (obs.x + obs.size / 2);
+                        const dy = y - (obs.y + obs.size / 2);
+                        if (Math.sqrt(dx * dx + dy * dy) < obs.size) {
+                            valid = false;
+                            break;
+                        }
+                    }
+
+                    // 시작 위치와 너무 가까운지 체크
+                    if (x < 150 && y < 200) valid = false;
+
+                    attempts++;
+                } while (!valid && attempts < 50);
+
+                if (valid) coins.push(new Coin(x, y));
+            }
+
+            // 문 생성 (오른쪽 위)
+            door = new Door(canvas.width - 100, 50);
+
+            gameState.totalCoins = coins.length;
+            gameState.stage = stageNum;
+
+            updateUI();
+            showMessage(`STAGE ${stageNum} START!`, 2000);
+        }
+
+        // UI 업데이트
+        function updateUI() {
+            document.getElementById('stage').textContent = gameState.stage;
+            document.getElementById('coins').textContent = gameState.coinsCollected;
+            document.getElementById('totalCoins').textContent = gameState.totalCoins;
+            document.getElementById('lives').textContent = gameState.lives;
+        }
+
+        // 메시지 표시
+        function showMessage(text, duration = 3000) {
+            const messageEl = document.getElementById('message');
+            messageEl.textContent = text;
+            messageEl.style.display = 'block';
+            setTimeout(() => {
+                messageEl.style.display = 'none';
+            }, duration);
+        }
+
+        // 배경 그리기
+        function drawBackground() {
+            // 우주선 내부 금속 바닥
+            const tileSize = 40;
+            for (let y = 0; y < canvas.height; y += tileSize) {
+                for (let x = 0; x < canvas.width; x += tileSize) {
+                    // 메탈 타일
+                    if ((x / tileSize + y / tileSize) % 2 === 0) {
+                        ctx.fillStyle = '#2a2a3e';
+                    } else {
+                        ctx.fillStyle = '#1f1f2e';
+                    }
+                    ctx.fillRect(x, y, tileSize, tileSize);
+
+                    // 타일 테두리 (금속 느낌)
+                    ctx.strokeStyle = '#444466';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(x, y, tileSize, tileSize);
+
+                    // 볼트 구멍
+                    ctx.fillStyle = '#111122';
+                    ctx.beginPath();
+                    ctx.arc(x + 5, y + 5, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(x + tileSize - 5, y + 5, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(x + 5, y + tileSize - 5, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.beginPath();
+                    ctx.arc(x + tileSize - 5, y + tileSize - 5, 2, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+
+            // 외곽 금속 벽
+            ctx.fillStyle = '#3a3a5e';
+            ctx.fillRect(0, 0, canvas.width, 10);
+            ctx.fillRect(0, 0, 10, canvas.height);
+            ctx.fillRect(canvas.width - 10, 0, 10, canvas.height);
+            ctx.fillRect(0, canvas.height - 10, canvas.width, 10);
+
+            // 벽 디테일
+            ctx.strokeStyle = '#5555aa';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(5, 5, canvas.width - 10, canvas.height - 10);
+
+            // 위쪽 상태 바 배경
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+            ctx.fillRect(0, 0, canvas.width, 50);
+
+            // 상태 바 테두리
+            ctx.strokeStyle = '#00ffff';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(0, 0, canvas.width, 50);
+
+            // 목숨 표시 (하트)
+            ctx.font = 'bold 24px Arial';
+            ctx.textAlign = 'left';
+            for (let i = 0; i < gameState.maxLives; i++) {
+                if (i < gameState.lives) {
+                    ctx.fillStyle = '#ff0066';
+                    ctx.fillText('❤️', 20 + i * 35, 30);
+                } else {
+                    ctx.fillStyle = '#333333';
+                    ctx.fillText('🖤', 20 + i * 35, 30);
+                }
+            }
+
+            // 스테이지 표시
+            ctx.fillStyle = '#00ff00';
+            ctx.font = 'bold 20px Courier New';
+            ctx.textAlign = 'center';
+            ctx.fillText(`STAGE ${gameState.stage}`, canvas.width / 2, 30);
+
+            // 코인 표시
+            ctx.fillStyle = '#FFD700';
+            ctx.textAlign = 'right';
+            ctx.fillText(`🪙 ${gameState.coinsCollected}/${gameState.totalCoins}`, canvas.width - 20, 30);
+        }
+
+        // 게임 루프
+        function gameLoop() {
+            animationId = requestAnimationFrame(gameLoop);
+
+            if (gameState.paused) return;
+
+            // 배경
+            drawBackground();
+
+            // 장애물 업데이트 및 그리기
+            obstacles.forEach(obs => {
+                obs.update();
+                obs.draw();
+            });
+
+            // 폭탄 스폰
+            bombSpawnTimer++;
+            const bombSpawnRate = Math.max(40, 180 - gameState.stage * 40); // 스테이지마다 더 빨리
+            if (bombSpawnTimer > bombSpawnRate) {
+                bombSpawnTimer = 0;
+                const x = Math.random() * (canvas.width - 100) + 50;
+                const speed = 2 + gameState.stage * 0.5; // 스테이지마다 속도 증가
+                bombs.push(new Bomb(x, speed));
+            }
+
+            // 폭탄 업데이트 및 그리기
+            for (let i = bombs.length - 1; i >= 0; i--) {
+                const bomb = bombs[i];
+                bomb.update();
+                bomb.draw();
+
+                // 플레이어 충돌 체크
+                if (bomb.checkHit(player1, player2)) {
+                    gameState.lives--;
+                    updateUI();
+
+                    if (gameState.lives <= 0) {
+                        // 게임 오버
+                        showMessage('💀 GAME OVER 💀', 3000);
+                        gameState.paused = true;
+                        setTimeout(() => {
+                            // 시작 화면으로 돌아가기
+                            document.getElementById('gameContainer').classList.add('hidden');
+                            document.getElementById('ui').classList.add('hidden');
+                            document.getElementById('instructions').classList.add('hidden');
+                            document.getElementById('startScreen').classList.remove('hidden');
+
+                            // 게임 상태 초기화
+                            gameState.stage = 1;
+                            gameState.lives = 3;
+                            gameState.paused = false;
+                            gameStarted = false;
+                        }, 3000);
+                    } else {
+                        // 목숨이 남아있으면 계속 진행
+                        showMessage(`💥 BOMB HIT! ${gameState.lives} LIVES LEFT!`, 1500);
+                        // 플레이어 위치 리셋
+                        player1.x = 100;
+                        player1.y = 100;
+                        player2.x = 100;
+                        player2.y = 150;
+                    }
+
+                    // 폭발한 폭탄 제거
+                    bombs.splice(i, 1);
+                    continue;
+                }
+
+                // 폭발이 끝난 폭탄 제거
+                if (bomb.isDone()) {
+                    bombs.splice(i, 1);
+                }
+            }
+
+            // 문
+            door.draw();
+
+            // 코인
+            coins.forEach(coin => {
+                coin.update();
+                coin.draw();
+
+                if (coin.checkCollection(player1, player2)) {
+                    gameState.coinsCollected++;
+                    updateUI();
+
+                    if (gameState.coinsCollected >= gameState.totalCoins) {
+                        door.openDoor();
+                        showMessage('ALL COINS COLLECTED! GO TO DOOR!', 2000);
+                    }
+                }
+            });
+
+            // 플레이어
+            player1.update(obstacles);
+            player2.update(obstacles);
+            player1.draw();
+            player2.draw();
+
+            // 탈출 체크
+            if (door.checkEntry(player1, player2)) {
+                if (gameState.stage < gameState.maxStage) {
+                    gameState.stage++;
+                    showMessage(`STAGE ${gameState.stage - 1} CLEAR!`, 2000);
+                    setTimeout(() => {
+                        initStage(gameState.stage);
+                    }, 2000);
+                    gameState.paused = true;
+                    setTimeout(() => {
+                        gameState.paused = false;
+                    }, 2000);
+                } else {
+                    showMessage('🎉 GAME CLEAR! CONGRATULATIONS! 🎉', 5000);
+                    gameState.paused = true;
+                    setTimeout(() => {
+                        initStage(1);
+                        gameState.paused = false;
+                    }, 5000);
+                }
+            }
+        }
+
+        // 시작 버튼
+        document.getElementById('startButton').addEventListener('click', () => {
+            document.getElementById('startScreen').classList.add('hidden');
+            document.getElementById('gameContainer').classList.remove('hidden');
+            document.getElementById('ui').classList.remove('hidden');
+            document.getElementById('instructions').classList.remove('hidden');
+
+            if (!gameStarted) {
+                gameStarted = true;
+                gameState.lives = 3; // 게임 시작 시 목숨 초기화
+                initStage(1);
+                gameLoop();
+            }
+        });
+
+        // 키보드 이벤트
+        window.addEventListener('keydown', (e) => {
+            if (e.key in controls) {
+                controls[e.key] = true;
+                e.preventDefault();
+            }
+            if (e.key === 'Escape') {
+                gameState.paused = !gameState.paused;
+                if (gameState.paused) {
+                    showMessage('PAUSED', 999999);
+                } else {
+                    document.getElementById('message').style.display = 'none';
+                }
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (e.key in controls) {
+                controls[e.key] = false;
+                e.preventDefault();
+            }
+        });
+
+        // 게임패드 지원
+        function updateGamepad() {
+            const gamepads = navigator.getGamepads();
+
+            for (let i = 0; i < 2 && i < gamepads.length; i++) {
+                const gp = gamepads[i];
+                if (!gp) continue;
+
+                const deadzone = 0.15;
+                const player = i === 0 ? player1 : player2;
+
+                if (player) {
+                    if (Math.abs(gp.axes[0]) > deadzone) {
+                        controls[player.keys.left] = gp.axes[0] < -deadzone;
+                        controls[player.keys.right] = gp.axes[0] > deadzone;
+                    } else {
+                        controls[player.keys.left] = false;
+                        controls[player.keys.right] = false;
+                    }
+
+                    if (Math.abs(gp.axes[1]) > deadzone) {
+                        controls[player.keys.up] = gp.axes[1] < -deadzone;
+                        controls[player.keys.down] = gp.axes[1] > deadzone;
+                    } else {
+                        controls[player.keys.up] = false;
+                        controls[player.keys.down] = false;
+                    }
+                }
+            }
+        }
+
+        setInterval(updateGamepad, 16);
+    </script>
+</body>
+</html>
